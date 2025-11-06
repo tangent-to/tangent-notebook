@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
+    "deploy:clean": "gh-pages -d dist -f",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
