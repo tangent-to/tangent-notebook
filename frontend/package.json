@@ -8,10 +8,14 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^1.0.1",
+    "@tauri-apps/cli": "^2.9.3",
     "@tsconfig/svelte": "^3.0.0",
     "gh-pages": "^6.3.0",
     "svelte": "^3.49.0",
@@ -25,6 +29,7 @@
     "@monaco-editor/loader": "^1.6.0",
     "@tailwindcss/postcss": "^4.1.14",
     "@tailwindcss/typography": "^0.5.19",
+    "@tauri-apps/api": "^2.9.0",
     "autoprefixer": "^10.4.21",
     "json-formatter-js": "^2.5.10",
     "katex": "^0.16.8",

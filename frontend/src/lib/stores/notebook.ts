@@ -7,17 +7,56 @@ export const currentNotebook = writable<Notebook | null>(null);
 // List of available notebook files
 export const notebookFiles = writable<NotebookFile[]>([]);
 
+// Recently opened files
+export const recentFiles = writable<Array<{path: string; name: string; timestamp: number}>>([]);
+
 // Currently selected cell
 export const selectedCellId = writable<string | null>(null);
 
 export const notebookDirty = writable(false);
 
+// Current file path (for Tauri)
+export const currentFilePath = writable<string | null>(null);
+
+// Autosave debounce timer
+let autosaveTimer: number | null = null;
+const AUTOSAVE_DELAY = 2000; // 2 seconds
+
 export function markNotebookDirty(): void {
   notebookDirty.set(true);
+  scheduleAutosave();
 }
 
 export function markNotebookClean(): void {
   notebookDirty.set(false);
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+  }
+}
+
+// Schedule autosave with debouncing
+function scheduleAutosave(): void {
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer);
+  }
+
+  autosaveTimer = window.setTimeout(() => {
+    // Dispatch autosave event that the App component can listen to
+    window.dispatchEvent(new CustomEvent('autosave-notebook'));
+    autosaveTimer = null;
+  }, AUTOSAVE_DELAY);
+}
+
+// Add file to recent files list
+export function addToRecentFiles(path: string, name: string): void {
+  recentFiles.update(files => {
+    const filtered = files.filter(f => f.path !== path);
+    return [
+      { path, name, timestamp: Date.now() },
+      ...filtered
+    ].slice(0, 10); // Keep only 10 most recent
+  });
 }
 
 // Create a new notebook
