@@ -170,15 +170,9 @@
       loadNotebookFiles();
     })();
 
-    // Listen for autosave events
-    const handleAutosave = () => {
-      performSaveShortcut();
-    };
-    window.addEventListener('autosave-notebook', handleAutosave);
-
-    return () => {
-      window.removeEventListener('autosave-notebook', handleAutosave);
-    };
+    // Autosave is disabled in web version to prevent unwanted downloads
+    // It will only work in Tauri desktop app with proper file system integration
+    // For now, users should manually save with Ctrl+S
   });
 
   async function loadNotebookFiles() {
@@ -363,12 +357,28 @@ function handleNewNotebook() {
     const notebook = get(currentNotebook);
     if (!notebook) return;
 
-    const newCell = createNewCell(type);
-    const lastCell = notebook.cells[notebook.cells.length - 1];
+    // Get the selected cell ID or fall back to last cell
+    const currentSelectedId = get(selectedCellId);
+    const targetCell = currentSelectedId
+      ? notebook.cells.find(c => c.id === currentSelectedId)
+      : null;
+    const targetCellId = targetCell
+      ? targetCell.id
+      : notebook.cells[notebook.cells.length - 1].id;
 
     currentNotebook.update(nb => {
       if (!nb) return nb;
-      return addCellAfter(nb, lastCell.id, type);
+      const updatedNotebook = addCellAfter(nb, targetCellId, type);
+
+      // Find and select the newly added cell
+      const newCell = updatedNotebook.cells.find(cell =>
+        !nb.cells.some(oldCell => oldCell.id === cell.id)
+      );
+      if (newCell) {
+        selectedCellId.set(newCell.id);
+      }
+
+      return updatedNotebook;
     });
   }
 
