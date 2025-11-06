@@ -3,12 +3,25 @@
   import { get } from 'svelte/store';
   import Notebook from './lib/components/Notebook.svelte';
   import RightSidebar from './lib/components/RightSidebar.svelte';
+  import ChatSidebar from './lib/components/ChatSidebar.svelte';
+  import CommandPalette from './lib/components/CommandPalette.svelte';
   import ExportDialog from './lib/components/ExportDialog.svelte';
-  import { currentNotebook, notebookFiles, createNewNotebook, markNotebookClean, notebookDirty } from './lib/stores/notebook';
+  import {
+    currentNotebook,
+    notebookFiles,
+    createNewNotebook,
+    markNotebookClean,
+    notebookDirty,
+    addCellAfter,
+    createNewCell,
+    selectedCellId
+  } from './lib/stores/notebook';
   import { ExportService } from './lib/utils/exportService';
 
   let rightSidebarOpen = false;
+  let chatSidebarOpen = false;
   let showExportDialog = false;
+  let showCommandPalette = false;
   const exportService = new ExportService();
 
   // Export function for child component to call
@@ -156,6 +169,16 @@
       // Load saved notebooks list (mock/backend)
       loadNotebookFiles();
     })();
+
+    // Listen for autosave events
+    const handleAutosave = () => {
+      performSaveShortcut();
+    };
+    window.addEventListener('autosave-notebook', handleAutosave);
+
+    return () => {
+      window.removeEventListener('autosave-notebook', handleAutosave);
+    };
   });
 
   async function loadNotebookFiles() {
@@ -216,9 +239,39 @@ function handleNewNotebook() {
   }
 
   function handleGlobalKeydown(event: KeyboardEvent) {
+    // Command Palette: Ctrl/Cmd + K
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      showCommandPalette = !showCommandPalette;
+      return;
+    }
+
+    // Toggle Chat: Ctrl/Cmd + /
+    if ((event.metaKey || event.ctrlKey) && event.key === '/') {
+      event.preventDefault();
+      chatSidebarOpen = !chatSidebarOpen;
+      return;
+    }
+
+    // Save: Ctrl/Cmd + S
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
       event.preventDefault();
       performSaveShortcut();
+      return;
+    }
+
+    // New Notebook: Ctrl/Cmd + N
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+      event.preventDefault();
+      handleNewNotebook();
+      return;
+    }
+
+    // Open Notebook: Ctrl/Cmd + O
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'o') {
+      event.preventDefault();
+      handleImportNotebook();
+      return;
     }
   }
 
@@ -260,6 +313,97 @@ function handleNewNotebook() {
     link.click();
     URL.revokeObjectURL(url);
   }
+
+  function handleCommand(event: CustomEvent) {
+    const commandId = event.detail.id;
+
+    switch (commandId) {
+      case 'new-notebook':
+        handleNewNotebook();
+        break;
+      case 'open-notebook':
+        handleImportNotebook();
+        break;
+      case 'save-notebook':
+        performSaveShortcut();
+        break;
+      case 'export-notebook':
+        handleExportNotebook();
+        break;
+      case 'run-all':
+        runAllCells();
+        break;
+      case 'add-code-cell':
+        addNewCell('code');
+        break;
+      case 'add-markdown-cell':
+        addNewCell('markdown');
+        break;
+      case 'toggle-chat':
+        chatSidebarOpen = !chatSidebarOpen;
+        break;
+      case 'clear-outputs':
+        clearAllOutputs();
+        break;
+      case 'keyboard-shortcuts':
+        alert('Keyboard Shortcuts:\n\n' +
+          'Ctrl/Cmd+K - Command Palette\n' +
+          'Ctrl/Cmd+/ - Toggle AI Chat\n' +
+          'Ctrl/Cmd+S - Save Notebook\n' +
+          'Ctrl/Cmd+N - New Notebook\n' +
+          'Ctrl/Cmd+O - Open Notebook\n' +
+          'Ctrl/Cmd+Enter - Run Cell\n' +
+          'Shift+Enter - Run Cell and Select Next\n' +
+          'Alt+Enter - Run Cell and Insert Below');
+        break;
+    }
+  }
+
+  function addNewCell(type: 'code' | 'markdown') {
+    const notebook = get(currentNotebook);
+    if (!notebook) return;
+
+    const newCell = createNewCell(type);
+    const lastCell = notebook.cells[notebook.cells.length - 1];
+
+    currentNotebook.update(nb => {
+      if (!nb) return nb;
+      return addCellAfter(nb, lastCell.id, type);
+    });
+  }
+
+  function clearAllOutputs() {
+    currentNotebook.update(notebook => {
+      if (!notebook) return notebook;
+      return {
+        ...notebook,
+        cells: notebook.cells.map(cell => ({
+          ...cell,
+          output: undefined
+        })),
+        updatedAt: Date.now()
+      };
+    });
+  }
+
+  function handleInsertCode(event: CustomEvent) {
+    const { code } = event.detail;
+
+    const notebook = get(currentNotebook);
+    if (!notebook) return;
+
+    const newCell = createNewCell('code');
+    newCell.content = code;
+
+    const lastCell = notebook.cells[notebook.cells.length - 1];
+    const updatedNotebook = addCellAfter(notebook, lastCell.id, 'code');
+
+    // Update the new cell's content
+    updatedNotebook.cells[updatedNotebook.cells.length - 1].content = code;
+
+    currentNotebook.set(updatedNotebook);
+    selectedCellId.set(newCell.id);
+  }
 </script>
 
 <svelte:window on:keydown={handleGlobalKeydown} />
@@ -268,13 +412,19 @@ function handleNewNotebook() {
   <!-- Observable-style header -->
   <header class="app-header">
     <div class="header-left">
-      <button class="notebooks-btn" on:click={handleNewNotebook} title="New Notebook">
+      <button class="notebooks-btn" on:click={() => showCommandPalette = true} title="Command Palette (Ctrl+K)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 8h10M8 3l5 5-5 5"/>
+        </svg>
+        <kbd class="kbd-hint">⌘K</kbd>
+      </button>
+      <button class="notebooks-btn" on:click={handleNewNotebook} title="New Notebook (Ctrl+N)">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M8 3v10M3 8h10"/>
         </svg>
         New
       </button>
-      <button class="notebooks-btn" on:click={handleImportNotebook} title="Import Notebook">
+      <button class="notebooks-btn" on:click={handleImportNotebook} title="Import Notebook (Ctrl+O)">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14 10v2a2 2 0 01-2 2H4a2 2 0 01-2-2v-2M8 2v9M5 8l3 3 3-3"/>
         </svg>
@@ -309,6 +459,16 @@ function handleNewNotebook() {
         </button>
         <span class="header-separator">•</span>
       {/if}
+      <button
+        class="icon-btn"
+        class:active={chatSidebarOpen}
+        on:click={() => chatSidebarOpen = !chatSidebarOpen}
+        title="AI Assistant (Ctrl+/)"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z"/>
+        </svg>
+      </button>
       <button class="icon-btn" on:click={toggleRightSidebar} title="Info">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="10" cy="10" r="8"/>
@@ -323,12 +483,26 @@ function handleNewNotebook() {
       <Notebook />
     </main>
 
+    {#if chatSidebarOpen}
+      <aside class="chat-sidebar-container">
+        <ChatSidebar
+          on:close={() => chatSidebarOpen = false}
+          on:insertCode={handleInsertCode}
+        />
+      </aside>
+    {/if}
+
     {#if rightSidebarOpen}
       <aside class="right-sidebar-container">
         <RightSidebar on:close={() => rightSidebarOpen = false} />
       </aside>
     {/if}
   </div>
+
+  <CommandPalette
+    bind:visible={showCommandPalette}
+    on:command={handleCommand}
+  />
 
   {#if showExportDialog}
     <ExportDialog on:close={() => showExportDialog = false} />
@@ -382,6 +556,17 @@ function handleNewNotebook() {
     color: #1a1a1a;
   }
 
+  .kbd-hint {
+    padding: 0.125rem 0.375rem;
+    background-color: #f3f4f6;
+    border: 1px solid #d1d5db;
+    border-radius: 3px;
+    font-family: 'Fira Code', monospace;
+    font-size: 0.625rem;
+    color: #6b7280;
+    margin-left: 0.25rem;
+  }
+
   .icon-btn {
     background: transparent;
     border: none;
@@ -398,6 +583,15 @@ function handleNewNotebook() {
   .icon-btn:hover {
     background-color: #f5f5f5;
     color: #1a1a1a;
+  }
+
+  .icon-btn.active {
+    background-color: #1a1a1a;
+    color: #ffffff;
+  }
+
+  .icon-btn.active:hover {
+    background-color: #000000;
   }
 
   .header-meta {
@@ -450,6 +644,15 @@ function handleNewNotebook() {
     overflow-x: hidden;
   }
 
+  .chat-sidebar-container {
+    width: 380px;
+    border-left: 1px solid #e8e8e8;
+    background-color: #fafafa;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
   .right-sidebar-container {
     width: 280px;
     border-left: 1px solid #e8e8e8;
@@ -458,6 +661,7 @@ function handleNewNotebook() {
   }
 
   @media (max-width: 768px) {
+    .chat-sidebar-container,
     .right-sidebar-container {
       position: fixed;
       right: 0;
