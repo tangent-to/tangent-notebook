@@ -16,43 +16,70 @@
   let inputValue = '';
   let isLoading = false;
   let messagesContainer: HTMLDivElement;
-  let githubToken = '';
+  let apiKey = '';
   let isConfigured = false;
   let showSettings = false;
-  let selectedProvider = 'github-copilot';
+  let selectedProvider = 'ollama'; // Default to Ollama (free, local)
+  let claudeApiKey = '';
+  let ollamaUrl = 'http://localhost:11434/api';
 
   onMount(() => {
-    // Load saved GitHub token from localStorage
-    const savedToken = localStorage.getItem('github_token');
-    if (savedToken) {
-      githubToken = savedToken;
-      configureGitHubProvider(savedToken);
+    // Load saved settings from localStorage
+    const savedProvider = localStorage.getItem('chat_provider');
+    const savedClaudeKey = localStorage.getItem('claude_api_key');
+    const savedOllamaUrl = localStorage.getItem('ollama_url');
+
+    if (savedProvider) selectedProvider = savedProvider;
+    if (savedClaudeKey) claudeApiKey = savedClaudeKey;
+    if (savedOllamaUrl) ollamaUrl = savedOllamaUrl;
+
+    // Try to configure saved provider
+    if (savedProvider === 'claude' && savedClaudeKey) {
+      configureProvider('claude', savedClaudeKey);
+    } else if (savedProvider === 'ollama') {
+      configureProvider('ollama', '');
     }
 
     checkConfiguration();
   });
 
   function checkConfiguration() {
-    isConfigured = aiService.isConfigured();
+    const provider = aiService.getActiveProvider();
+    isConfigured = provider !== null && (
+      provider.apiKey !== undefined || selectedProvider === 'ollama'
+    );
   }
 
-  function configureGitHubProvider(token: string) {
-    aiService.configureProvider('github-copilot', token);
-    aiService.setProvider('github-copilot');
-    localStorage.setItem('github_token', token);
+  function configureProvider(provider: string, key: string) {
+    if (provider === 'claude') {
+      aiService.configureProvider('claude', key);
+      aiService.setProvider('claude');
+      localStorage.setItem('chat_provider', 'claude');
+      localStorage.setItem('claude_api_key', key);
+    } else if (provider === 'ollama') {
+      aiService.configureProvider('ollama', '', { baseUrl: ollamaUrl });
+      aiService.setProvider('ollama');
+      localStorage.setItem('chat_provider', 'ollama');
+      localStorage.setItem('ollama_url', ollamaUrl);
+    }
+
     isConfigured = true;
     showSettings = false;
   }
 
   function handleSettingsSave() {
-    if (githubToken.trim()) {
-      configureGitHubProvider(githubToken.trim());
+    if (selectedProvider === 'claude' && claudeApiKey.trim()) {
+      configureProvider('claude', claudeApiKey.trim());
+    } else if (selectedProvider === 'ollama') {
+      configureProvider('ollama', '');
     }
   }
 
   function handleDisconnect() {
-    githubToken = '';
-    localStorage.removeItem('github_token');
+    apiKey = '';
+    claudeApiKey = '';
+    localStorage.removeItem('chat_provider');
+    localStorage.removeItem('claude_api_key');
     isConfigured = false;
   }
 
@@ -156,7 +183,15 @@
 
   {#if showSettings}
     <div class="settings-panel">
-      <h3>AI Provider Settings</h3>
+      <h3>Chat Provider Settings</h3>
+
+      <div class="info-box">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 16v-4M12 8h.01"/>
+        </svg>
+        <p><strong>Note:</strong> GitHub Copilot is for inline code completion only. For chat, use Claude or Ollama.</p>
+      </div>
 
       {#if isConfigured}
         <div class="status-connected">
@@ -164,23 +199,48 @@
             <circle cx="12" cy="12" r="10"/>
             <path d="M9 12l2 2 4-4"/>
           </svg>
-          <span>Connected to GitHub Copilot</span>
+          <span>Connected to {selectedProvider === 'claude' ? 'Claude' : 'Ollama'}</span>
         </div>
         <button class="btn-secondary" on:click={handleDisconnect}>Disconnect</button>
       {:else}
         <div class="form-group">
-          <label for="github-token">GitHub Token</label>
-          <input
-            id="github-token"
-            type="password"
-            bind:value={githubToken}
-            placeholder="ghp_..."
-            class="input"
-          />
-          <p class="help-text">
-            Get your token from <a href="https://github.com/settings/tokens" target="_blank">GitHub Settings</a>
-          </p>
+          <label for="provider">AI Provider</label>
+          <select id="provider" bind:value={selectedProvider} class="input">
+            <option value="ollama">Ollama (Local - Free)</option>
+            <option value="claude">Claude (Anthropic API)</option>
+          </select>
         </div>
+
+        {#if selectedProvider === 'claude'}
+          <div class="form-group">
+            <label for="claude-key">Claude API Key</label>
+            <input
+              id="claude-key"
+              type="password"
+              bind:value={claudeApiKey}
+              placeholder="sk-ant-..."
+              class="input"
+            />
+            <p class="help-text">
+              Get your API key from <a href="https://console.anthropic.com/" target="_blank">Anthropic Console</a>
+            </p>
+          </div>
+        {:else if selectedProvider === 'ollama'}
+          <div class="form-group">
+            <label for="ollama-url">Ollama URL</label>
+            <input
+              id="ollama-url"
+              type="text"
+              bind:value={ollamaUrl}
+              placeholder="http://localhost:11434/api"
+              class="input"
+            />
+            <p class="help-text">
+              Install Ollama from <a href="https://ollama.ai" target="_blank">ollama.ai</a>, then run <code>ollama pull codellama</code>
+            </p>
+          </div>
+        {/if}
+
         <div class="settings-actions">
           <button class="btn-primary" on:click={handleSettingsSave}>
             Connect
@@ -369,6 +429,37 @@
     margin: 0 0 1rem 0;
   }
 
+  .info-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background-color: #eff6ff;
+    border: 1px solid #93c5fd;
+    border-radius: 6px;
+    color: #1e40af;
+    font-size: 0.8125rem;
+    margin-bottom: 1rem;
+    line-height: 1.5;
+  }
+
+  .info-box svg {
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+  }
+
+  .info-box p {
+    margin: 0;
+  }
+
+  .info-box code {
+    background-color: #dbeafe;
+    padding: 0.125rem 0.375rem;
+    border-radius: 3px;
+    font-family: 'Fira Code', monospace;
+    font-size: 0.75rem;
+  }
+
   .status-connected {
     display: flex;
     align-items: center;
@@ -400,8 +491,16 @@
     border: 1px solid #d1d5db;
     border-radius: 6px;
     font-size: 0.875rem;
-    font-family: 'Fira Code', monospace;
     transition: border-color 0.15s;
+  }
+
+  input.input {
+    font-family: 'Fira Code', monospace;
+  }
+
+  select.input {
+    font-family: inherit;
+    cursor: pointer;
   }
 
   .input:focus {
